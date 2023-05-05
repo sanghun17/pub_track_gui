@@ -11,9 +11,6 @@ from interactive_markers.interactive_marker_server import *
 from interactive_markers.menu_handler import *
 from visualization_msgs.msg import *
 
-
-
-
 class PublishTrack():
     def __init__(self):
         self.server = InteractiveMarkerServer("track_info_interative")
