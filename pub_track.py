@@ -49,6 +49,13 @@ class PublishTrack():
         tarck_marker_control.interaction_mode = interaction_mode
         interaction_marker.controls.append(tarck_marker_control) 
 
+    def path_contain_zero_wp(self,m1_id, m2_id):
+        diff = abs(m1_id - m2_id)
+        if diff > 0.5*self.max_id:
+            return True
+        else:
+            return False
+        
     def smooth_path_xy(self, marker1_name, marker2_name):
         m1_p = self.server.get(marker1_name).pose.position
         m2_p = self.server.get(marker2_name).pose.position
@@ -59,13 +66,30 @@ class PublishTrack():
         direction = m2_p - m1_p
         distance = np.linalg.norm(direction)
         unit_vector = direction / distance
-        step_size = distance/ abs(m1_id - m2_id)
-        if m1_id < m2_id:
-            smooth_range = range(m1_id, m2_id+1,1)
+        
+        if self.path_contain_zero_wp(m1_id, m2_id):
+            step_size = distance / (self.max_id - abs(m1_id - m2_id))
+            if m1_id < m2_id:
+                tmp1 = range(m1_id, -1,-1)
+                tmp2 = range(self.max_id,m2_id-1,-1)
+                smooth_range = list(tmp1)+list(tmp2)
+            else:
+                tmp1 = range(m2_id,-1,-1)
+                tmp2 = range(self.max_id,m1_id-1,-1)
+                smooth_range = list(tmp1)+list(tmp2)
         else:
-            smooth_range = range(m1_id, m2_id-1,-1)
+            step_size = distance/ abs(m1_id - m2_id)
+            if m1_id < m2_id:
+                smooth_range = range(m1_id, m2_id+1,1)
+            else:
+                smooth_range = range(m1_id, m2_id-1,-1)
+
         for i in smooth_range:
-            offset = abs(i-m1_id) * step_size
+            if self.path_contain_zero_wp(i,m1_id):
+                offset = (self.max_id - abs(i-m1_id)) * step_size
+            else:
+                offset = abs(i-m1_id) * step_size
+
             position = tuple(m1_p + offset*unit_vector)
             marker_name = "wp"+str(i)
             ori_pose = self.server.get(marker_name).pose
@@ -90,13 +114,30 @@ class PublishTrack():
         direction = m2_p - m1_p
         distance = np.linalg.norm(direction)
         unit_vector = direction / distance
-        step_size = distance/ abs(m1_id - m2_id)
-        if m1_id < m2_id:
-            smooth_range = range(m1_id, m2_id+1,1)
+        
+        if self.path_contain_zero_wp(m1_id, m2_id):
+            step_size = distance / (self.max_id - abs(m1_id - m2_id))
+            if m1_id < m2_id:
+                tmp1 = range(m1_id, -1,-1)
+                tmp2 = range(self.max_id,m2_id-1,-1)
+                smooth_range = list(tmp1)+list(tmp2)
+            else:
+                tmp1 = range(m2_id,-1,-1)
+                tmp2 = range(self.max_id,m1_id-1,-1)
+                smooth_range = list(tmp1)+list(tmp2)
         else:
-            smooth_range = range(m1_id, m2_id-1,-1)
+            step_size = distance/ abs(m1_id - m2_id)
+            if m1_id < m2_id:
+                smooth_range = range(m1_id, m2_id+1,1)
+            else:
+                smooth_range = range(m1_id, m2_id-1,-1)
+
         for i in smooth_range:
-            offset = abs(i-m1_id) * step_size
+            if self.path_contain_zero_wp(i,m1_id):
+                offset = (self.max_id - abs(i-m1_id)) * step_size
+            else:
+                offset = abs(i-m1_id) * step_size
+
             position = tuple(m1_p + offset*unit_vector)
             marker_name = "wp"+str(i)
             ori_pose = self.server.get(marker_name).pose
@@ -110,7 +151,6 @@ class PublishTrack():
         self.menu_handler.reApply( self.server )
         self.server.applyChanges()
         return
-
 
     def processFeedback(self,feedback):
         p = feedback.pose.position
