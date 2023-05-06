@@ -18,7 +18,8 @@ class PublishTrack():
         self.menu_list = [ "Anchor1","Anchor2","Vel_Smooth","Pos_Smooth"]
         for menu in self.menu_list:
             self.menu_handler.insert( menu , callback=self.processFeedback)
-        
+        self.cst_pub = rospy.Publisher("track_info", MarkerArray, queue_size = 1)
+        self.interative_marker_sub = rospy.Subscriber("/track_info_interative/update_full",InteractiveMarkerInit,self.InterativeMarkerCallback)
 
         self.anchor1 = np.nan
         self.anchor2 = np.nan
@@ -31,12 +32,30 @@ class PublishTrack():
         copy_file_name = "./result/opt_traj_new.txt"
 
         shutil.copy2(file_name,copy_file_name)
-        self.read_file(copy_file_name)
+        self.publish_interative_marker(copy_file_name)
         
         self.rate = rospy.Rate(1)
         while not rospy.is_shutdown():
             self.rate.sleep()
             self.server.applyChanges()
+           
+
+    def InterativeMarkerCallback(self,msg):
+        marker_array = MarkerArray()
+        for int_marker in msg.markers:
+            marker = Marker()
+            marker.header = int_marker.header
+            marker.pose = int_marker.pose
+            marker.ns= int_marker.controls[0].markers[0].ns
+            marker.id = int_marker.controls[0].markers[0].id
+            marker.type = int_marker.controls[0].markers[0].type
+            marker.action = int_marker.controls[0].markers[0].action
+            marker.scale = int_marker.controls[0].markers[0].scale
+            marker.color = int_marker.controls[0].markers[0].color
+            marker_array.markers.append(marker)
+        
+        self.cst_pub.publish(marker_array)
+        
 
     def CreateMarkerControl(self, interaction_marker, interaction_mode, name, w,x,y,z):
         tarck_marker_control = InteractiveMarkerControl()
@@ -180,7 +199,7 @@ class PublishTrack():
 
         return
 
-    def read_file(self, filename):
+    def publish_interative_marker(self, filename):
         track = np.loadtxt(filename, delimiter=",", dtype = float)
         
         id = 0
@@ -206,6 +225,7 @@ class PublishTrack():
             # track_marker.ns = "track"
             track_marker.header.stamp = rospy.Time.now()
             track_marker.type = Marker.SPHERE
+            track_marker.ns = "track"
             track_marker.color.r, track_marker.color.g, track_marker.color.b = (0, 255, 0)
             track_marker.color.a = 1
             track_marker.scale.x = 0.2
