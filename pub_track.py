@@ -24,6 +24,7 @@ class PublishTrack():
         self.anchor2 = np.nan
         self.vel_smooth_pivot = np.nan
         self.pos_smooth_pivot = np.nan
+        self.max_id = np.nan
 
         # file_name = "./result/center_traj_with_boundary.txt"
         file_name = "./result/opt_traj.txt"
@@ -48,88 +49,69 @@ class PublishTrack():
         tarck_marker_control.interaction_mode = interaction_mode
         interaction_marker.controls.append(tarck_marker_control) 
 
-    def smooth_path(self,smooth_quantity):
-        anchor1_marker_position = self.server.get(self.anchor1).pose.position
-        anchor2_marker_position = self.server.get(self.anchor2).pose.position
-        if smooth_quantity == "pos":
-            pivot_marker_position = self.server.get(self.pos_smooth_pivot).pose.position
-        elif smooth_quantity == "vel":
-            pivot_marker_position = self.server.get(self.vel_smooth_pivot).pose.position
-
-        pivot_marker_position = np.array([pivot_marker_position.x, pivot_marker_position.y, pivot_marker_position.z])
-        anchor1_marker_position = np.array([anchor1_marker_position.x, anchor1_marker_position.y,anchor1_marker_position.z])
-        anchor2_marker_position = np.array([anchor2_marker_position.x, anchor2_marker_position.y,anchor2_marker_position.z])
-        # Compute the step size for interpolating between anchor1 and pivot
-        if smooth_quantity == "pos":
-            first_number_tmp = int(re.search(r'\d+', self.pos_smooth_pivot).group()), int(re.search(r'\d+', self.anchor1).group())
-        elif smooth_quantity == "vel":
-            first_number_tmp = int(re.search(r'\d+', self.vel_smooth_pivot).group()), int(re.search(r'\d+', self.anchor1).group())
-        first_number = min(first_number_tmp[0],first_number_tmp[1])
-        last_number = max(first_number_tmp[0],first_number_tmp[1])
-        # Compute the direction and distance between the anchor1 and pivot markers
-        direction = pivot_marker_position-anchor1_marker_position  
-        if first_number_tmp[0] < first_number_tmp[1]:
-            direction = -1* direction
-        distance = np.linalg.norm(direction)       
-        step_size = distance / (last_number - first_number)
-        # Iterate over the range of marker numbers to interpolate
-        for i in range(first_number, last_number+1):
-            # Compute the position of the current marker using linear interpolation
-            offset = (i - first_number) * step_size
-            position = tuple(anchor1_marker_position + offset * direction / distance)
-            if first_number_tmp[0] < first_number_tmp[1]:
-                position = tuple(pivot_marker_position + offset * direction / distance)
-            # Update the position of the current marker
-            marker_name = "wp{:02d}".format(i)
-            ori_pose = self.server.get(marker_name).pose
-            new_pose = Pose()
-            if smooth_quantity =="pos":
-                new_pose.position.x = position[0]
-                new_pose.position.y = position[1]
-                new_pose.position.z = ori_pose.position.z
-            elif smooth_quantity == "vel":
-                new_pose.position.x = ori_pose.position.x
-                new_pose.position.y = ori_pose.position.y
-                new_pose.position.z = position[2]
-            new_pose.orientation = ori_pose.orientation
-            self.server.setPose(marker_name, new_pose)       # Compute the direction and distance between the anchor1 and pivot markers       # Compute the step size for interpolating between anchor1 and pivot
-        
-        if smooth_quantity == "pos":
-            first_number_tmp = int(re.search(r'\d+', self.pos_smooth_pivot).group()), int(re.search(r'\d+', self.anchor2).group())
-        elif smooth_quantity == "vel":
-            first_number_tmp = int(re.search(r'\d+', self.vel_smooth_pivot).group()), int(re.search(r'\d+', self.anchor2).group())
-        first_number = min(first_number_tmp[0],first_number_tmp[1])
-        last_number = max(first_number_tmp[0],first_number_tmp[1])
-        direction = anchor2_marker_position - pivot_marker_position
-        if first_number_tmp[0] > first_number_tmp[1]:
-            direction = -1* direction
+    def smooth_path_xy(self, marker1_name, marker2_name):
+        m1_p = self.server.get(marker1_name).pose.position
+        m2_p = self.server.get(marker2_name).pose.position
+        m1_p = np.array([m1_p.x, m1_p.y])
+        m2_p = np.array([m2_p.x, m2_p.y])
+        m1_id = int(marker1_name[2:])
+        m2_id = int(marker2_name[2:])
+        direction = m2_p - m1_p
         distance = np.linalg.norm(direction)
-        step_size = distance / (last_number - first_number)
-        # Iterate over the range of marker numbers to interpolate
-        for i in range(first_number, last_number+1):
-            # Compute the position of the current marker using linear interpolation
-            offset = (i - first_number) * step_size
-            position = tuple(pivot_marker_position + offset * direction / distance)
-            if first_number_tmp[0] > first_number_tmp[1]:
-                position = tuple(anchor2_marker_position + offset * direction / distance)
-            # Update the position of the current marker
-            marker_name = "wp{:02d}".format(i)
+        unit_vector = direction / distance
+        step_size = distance/ abs(m1_id - m2_id)
+        if m1_id < m2_id:
+            smooth_range = range(m1_id, m2_id+1,1)
+        else:
+            smooth_range = range(m1_id, m2_id-1,-1)
+        for i in smooth_range:
+            offset = abs(i-m1_id) * step_size
+            position = tuple(m1_p + offset*unit_vector)
+            marker_name = "wp"+str(i)
             ori_pose = self.server.get(marker_name).pose
             new_pose = Pose()
-            if smooth_quantity =="pos":
-                new_pose.position.x = position[0]
-                new_pose.position.y = position[1]
-                new_pose.position.z = ori_pose.position.z
-            elif smooth_quantity == "vel":
-                new_pose.position.x = ori_pose.position.x
-                new_pose.position.y = ori_pose.position.y
-                new_pose.position.z = position[2]
+            new_pose.position.x = position[0]
+            new_pose.position.y = position[1]
+            new_pose.position.z = ori_pose.position.z
             new_pose.orientation = ori_pose.orientation
             self.server.setPose(marker_name, new_pose)
 
+        self.menu_handler.reApply( self.server )
         self.server.applyChanges()
         return
     
+    def smooth_path_z(self, marker1_name, marker2_name):
+        m1_p = self.server.get(marker1_name).pose.position
+        m2_p = self.server.get(marker2_name).pose.position
+        m1_p = np.array([m1_p.z])
+        m2_p = np.array([m2_p.z])
+        m1_id = int(marker1_name[2:])
+        m2_id = int(marker2_name[2:])
+        direction = m2_p - m1_p
+        distance = np.linalg.norm(direction)
+        unit_vector = direction / distance
+        step_size = distance/ abs(m1_id - m2_id)
+        if m1_id < m2_id:
+            smooth_range = range(m1_id, m2_id+1,1)
+        else:
+            smooth_range = range(m1_id, m2_id-1,-1)
+        for i in smooth_range:
+            offset = abs(i-m1_id) * step_size
+            position = tuple(m1_p + offset*unit_vector)
+            marker_name = "wp"+str(i)
+            ori_pose = self.server.get(marker_name).pose
+            new_pose = Pose()
+            new_pose.position.x = ori_pose.position.x
+            new_pose.position.y = ori_pose.position.y
+            new_pose.position.z = position[0]
+            new_pose.orientation = ori_pose.orientation
+            self.server.setPose(marker_name, new_pose)
+
+        self.menu_handler.reApply( self.server )
+        self.server.applyChanges()
+        return
+
+
     def processFeedback(self,feedback):
         p = feedback.pose.position
 
@@ -142,11 +124,13 @@ class PublishTrack():
                 self.anchor2 = feedback.marker_name
             elif selected_menu == "Vel_Smooth":
                 self.vel_smooth_pivot = feedback.marker_name
-                self.smooth_path("vel")
+                self.smooth_path_z(self.anchor1,self.vel_smooth_pivot)
+                self.smooth_path_z(self.anchor2,self.vel_smooth_pivot)
                 print("smooth vel finished")
             elif selected_menu == "Pos_Smooth":
                 self.pos_smooth_pivot = feedback.marker_name
-                self.smooth_path("pos")
+                self.smooth_path_xy(self.anchor1,self.pos_smooth_pivot)
+                self.smooth_path_xy(self.anchor2,self.pos_smooth_pivot)
                 print("smooth pos finished")
             else:
                 print("something wrong..")
@@ -163,7 +147,8 @@ class PublishTrack():
         for i in range(len(track)):
             int_marker = InteractiveMarker()
             int_marker.header.frame_id = "map"
-            int_marker.name = "wp"+str(id)
+            int_marker.name ="wp"+str(id)
+            int_marker.description = str(id)
             int_marker.header.stamp = rospy.Time.now()
             int_marker.scale = 0.5
             int_marker.pose.position.x = track[i,0] #position x
@@ -178,7 +163,7 @@ class PublishTrack():
             tarck_marker_control.always_visible = True
             track_marker = Marker()
             track_marker.id = id
-            track_marker.ns = "track"
+            # track_marker.ns = "track"
             track_marker.header.stamp = rospy.Time.now()
             track_marker.type = Marker.SPHERE
             track_marker.color.r, track_marker.color.g, track_marker.color.b = (0, 255, 0)
@@ -186,19 +171,19 @@ class PublishTrack():
             track_marker.scale.x = 0.2
             track_marker.scale.y = 0.2
             track_marker.scale.z = 0.2
+            self.max_id = id
             id += 1
-            int_marker.controls.append(tarck_marker_control) 
             tarck_marker_control.markers.append(track_marker)
+            int_marker.controls.append(tarck_marker_control) 
 
-            # # move_x
+            # move_x
             self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MOVE_AXIS,"move_x",1,1,0,0)
             # move_y
             self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MOVE_AXIS,"move_y",1,0,0,1)
             # move_z
             self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MOVE_AXIS,"move_y",1,0,1,0)
-
             # menu
-            self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MENU,"menu",0,0,0,1)
+            self.CreateMarkerControl(int_marker,InteractiveMarkerControl.BUTTON,"menu",0,0,0,1)
 
             self.server.insert(int_marker, self.processFeedback)
             self.menu_handler.apply( self.server, int_marker.name )
