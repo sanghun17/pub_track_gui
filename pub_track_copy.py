@@ -33,8 +33,8 @@ class PublishTrack():
         # file_name = "./result/center_traj_with_boundary.txt"
         file_name = "./result/opt_traj_with_boundary.txt"
         self.copy_file_name = "./result/opt_traj_with_boundary_new.txt"
-        shutil.copy2(file_name,self.copy_file_name)
         self.track =  np.loadtxt(self.copy_file_name, delimiter=",", dtype = float)
+        shutil.copy2(file_name,self.copy_file_name)
         self.publish_interative_marker(self.copy_file_name)
         self.rate = rospy.Rate(1)
         while not rospy.is_shutdown():
@@ -43,6 +43,7 @@ class PublishTrack():
 
     def InterativeMarkerCallback(self,msg):
         marker_array = MarkerArray()
+        # track =  np.loadtxt(self.copy_file_name, delimiter=",", dtype = float)
         for int_marker in msg.markers:
             marker = Marker()
             marker.header = int_marker.header
@@ -254,6 +255,7 @@ class PublishTrack():
         return
 
     def publish_interative_marker(self, filename):
+        # track =  np.loadtxt(filename, delimiter=",", dtype = float)
         id = 0
         for i in range(len(self.track)):
             int_marker = InteractiveMarker()
@@ -276,6 +278,10 @@ class PublishTrack():
             qy /= norm
             qz /= norm
             qw /= norm
+            # int_marker.pose.orientation.x = track[i,3] #curvature
+            # int_marker.pose.orientation.y = track[i,4] #left_width
+            # int_marker.pose.orientation.z = track[i,5] #right_width
+            # int_marker.pose.orientation.w = track[i,6] # psi
             int_marker.pose.orientation.x = qx
             int_marker.pose.orientation.y = qy
             int_marker.pose.orientation.z = qz
