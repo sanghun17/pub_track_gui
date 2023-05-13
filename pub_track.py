@@ -36,8 +36,9 @@ class PublishTrack():
         self.vel_multiply_pivot = np.nan
         self.max_id = np.nan
         file_name1 = rospy.get_param('/pub_track_gui/filename')
-        home_dir = os.path.expanduser("~")
-        file_name = home_dir +'/F1tenth_track/result/'+ file_name1
+        file_path = os.path.abspath(__file__)
+        current_script_path = os.path.dirname(file_path)
+        file_name = current_script_path + '/result/'+ file_name1
         print(file_name)
         self.track =  np.loadtxt(file_name, delimiter=",", dtype = float)
         self.publish_interative_marker()
@@ -345,8 +346,9 @@ class PublishTrack():
             
 class MangeTrackHistroy():
     def __init__(self,PublishTrack):
-        home_dir = os.path.expanduser("~")
-        directory = home_dir+'/F1tenth_track/gui_tmp'
+        file_path = os.path.abspath(__file__)
+        current_script_path = os.path.dirname(file_path)
+        directory = current_script_path + '/gui_tmp'
         if os.path.exists(directory):
             shutil.rmtree(directory)
             print("Remove existing tmp folder: ",directory)
@@ -356,7 +358,7 @@ class MangeTrackHistroy():
         self.name_p2revious = directory + 'p2revious_track.txt'
         self.name_p3revious = directory + 'p2revious_track.txt'
         self.name_current = directory + 'current_track.txt'
-        self.name_modified = home_dir + '/F1tenth_track/result/rviz_modified_track.txt'
+        self.name_modified = current_script_path + '/result/rviz_modified_track.txt'
 
         self.PublishTrack = PublishTrack
         self.track_save_flag = False
