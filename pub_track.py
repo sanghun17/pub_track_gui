@@ -214,7 +214,7 @@ class PublishTrack():
             if i==pivot_id or i==m1_id or i == m2_id:
                 new_pose.position.z = ori_pose.position.z
             else:
-                new_pose.position.z = ori_pose.position.z*rate
+                new_pose.position.z =  self.track[i,2]*rate
             new_pose.orientation = ori_pose.orientation
             self.server.setPose(marker_name, new_pose)
 
@@ -320,7 +320,7 @@ class PublishTrack():
 
             self.server.insert(int_marker, self.processFeedback)
             self.menu_handler.apply( self.server, int_marker.name )
-            self.server.applyChanges()
+        self.server.applyChanges()
             
             
 def main():
