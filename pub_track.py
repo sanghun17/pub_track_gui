@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+
+
 import rospy
 import numpy as np
 import time
@@ -5,6 +8,7 @@ import math
 import shutil
 import copy
 import re
+import os
 
 from geometry_msgs.msg import Pose
 from interactive_markers.interactive_marker_server import *
@@ -15,14 +19,15 @@ from visualization_msgs.msg import *
 wp_sampling = 10
 class PublishTrack():
     def __init__(self):
+        self.first_run = True
+        self.track_manager=MangeTrackHistroy(self)
         self.server = InteractiveMarkerServer("track_info_interative")
         self.menu_handler = MenuHandler()
-        self.menu_list = [ "Anchor1","Anchor2","Vel_Smooth","Pos_Smooth","Vel_Multiply"]
+        self.menu_list = [ "Anchor1","Anchor2","Vel_Smooth","Pos_Smooth","Vel_Multiply","Control-Z"]
         for menu in self.menu_list:
             self.menu_handler.insert( menu , callback=self.processFeedback)
         self.cst_pub = rospy.Publisher("track_info", MarkerArray, queue_size = 1)
         self.interative_marker_sub = rospy.Subscriber("/track_info_interative/update_full",InteractiveMarkerInit,self.InterativeMarkerCallback)
-        
 
         self.anchor1 = np.nan
         self.anchor2 = np.nan
@@ -30,13 +35,13 @@ class PublishTrack():
         self.pos_smooth_pivot = np.nan
         self.vel_multiply_pivot = np.nan
         self.max_id = np.nan
-        # file_name = "./result/center_traj_with_boundary.txt"
-        file_name = "./result/opt_traj_with_boundary.txt"
-        self.copy_file_name = "./result/opt_traj_with_boundary_new.txt"
-        shutil.copy2(file_name,self.copy_file_name)
-        self.track =  np.loadtxt(self.copy_file_name, delimiter=",", dtype = float)
-        self.publish_interative_marker(self.copy_file_name)
-        self.rate = rospy.Rate(1)
+        file_name1 = rospy.get_param('/pub_track_gui/filename')
+        home_dir = os.path.expanduser("~")
+        file_name = home_dir +'/F1tenth_track/result/'+ file_name1
+        print(file_name)
+        self.track =  np.loadtxt(file_name, delimiter=",", dtype = float)
+        self.publish_interative_marker()
+        self.rate = rospy.Rate(1.0)
         while not rospy.is_shutdown():
             self.rate.sleep()
             self.server.applyChanges()
@@ -60,8 +65,12 @@ class PublishTrack():
             marker.color = int_marker.controls[0].markers[0].color
             marker.color.a = 1
             marker_array.markers.append(marker)
-        
         self.cst_pub.publish(marker_array)
+        
+        if self.track_manager.track_save_flag == True:
+            self.track_manager.save_track(marker_array)
+            self.publish_interative_marker()
+            self.track_manager.track_save_flag = False
         
     def CreateMarkerControl(self, interaction_marker, interaction_mode, name, w,x,y,z):
         tarck_marker_control = InteractiveMarkerControl()
@@ -125,8 +134,6 @@ class PublishTrack():
             new_pose.orientation = ori_pose.orientation
             self.server.setPose(marker_name, new_pose)
 
-        self.menu_handler.reApply( self.server )
-        self.server.applyChanges()
         return
     
     def smooth_path_z(self, marker1_name, marker2_name):
@@ -136,6 +143,7 @@ class PublishTrack():
         m2_p = np.array([m2_p.z])
         m1_id = int(marker1_name[2:])
         m2_id = int(marker2_name[2:])
+        print("Start smooth_path_z from ",m1_id," to ",m2_id)
         direction = m2_p - m1_p
         distance = np.linalg.norm(direction)
         unit_vector = direction / distance
@@ -173,17 +181,18 @@ class PublishTrack():
             new_pose.orientation = ori_pose.orientation
             self.server.setPose(marker_name, new_pose)
 
-        self.menu_handler.reApply( self.server )
-        self.server.applyChanges()
+        print("End smooth_path_z from ",m1_id," to ",m2_id)
         return
 
     def multiply_path_z(self, marker1_name, marker2_name):
+        prev_track =  np.loadtxt(self.track_manager.name_p1revious, delimiter=",", dtype = float)
         m1_p = self.server.get(marker1_name).pose.position
         m2_p = self.server.get(marker2_name).pose.position
         m1_p = np.array([m1_p.z])
         m2_p = np.array([m2_p.z])
         m1_id = int(marker1_name[2:])
         m2_id = int(marker2_name[2:])
+        print("Start multiply_path_z from ",m1_id," to ",m2_id)
         pivot_id = int(self.vel_multiply_pivot[2:])
         marker_name = self.vel_multiply_pivot
         pivot_p = self.server.get(marker_name).pose
@@ -203,7 +212,8 @@ class PublishTrack():
                 smooth_range = range(m1_id, m2_id-1,-1)
         
         
-        rate = pivot_p.position.z / self.track[pivot_id,2]
+        rate = pivot_p.position.z / prev_track[pivot_id,2]
+        print("rate: ",rate)
         for i in smooth_range:
             marker_name = "wp"+str(i)
             ori_pose = self.server.get(marker_name).pose
@@ -217,8 +227,7 @@ class PublishTrack():
             new_pose.orientation = ori_pose.orientation
             self.server.setPose(marker_name, new_pose)
 
-        self.menu_handler.reApply( self.server )
-        self.server.applyChanges()
+        print("End multiply_path_z from ",m1_id," to ",m2_id)
         return
 
     def processFeedback(self,feedback):
@@ -236,24 +245,42 @@ class PublishTrack():
                 self.smooth_path_z(self.anchor1,self.vel_smooth_pivot)
                 self.smooth_path_z(self.anchor2,self.vel_smooth_pivot)
                 print("smooth vel finished")
+                self.track_manager.track_save_flag = True
+                
             elif selected_menu == "Pos_Smooth":
                 self.pos_smooth_pivot = feedback.marker_name
                 self.smooth_path_xy(self.anchor1,self.pos_smooth_pivot)
                 self.smooth_path_xy(self.anchor2,self.pos_smooth_pivot)
                 print("smooth pos finished")
+                self.track_manager.track_save_flag = True
+
             elif selected_menu == "Vel_Multiply":
                 self.vel_multiply_pivot = feedback.marker_name
                 self.multiply_path_z(self.anchor1, self.anchor2)
                 print("multiply vel finished")
+                self.track_manager.track_save_flag = True
+
+            elif selected_menu == "Control-Z":
+                self.track_manager.control_z_track()
+                print("load last track finished")
             else:
                 print("something wrong..")
                 exit()
-        else: 
+            # self.menu_handler.reApply( self.server )
+            self.server.applyChanges()
+
+        if feedback.event_type == InteractiveMarkerFeedback.POSE_UPDATE:
             print(feedback.marker_name + " is now at " + str(p.x) + ", " + str(p.y) + ", " + str(p.z) )
+        
+        if feedback.event_type == InteractiveMarkerFeedback.MOUSE_UP:
+            print("MOUSE_UP")
+            self.track_manager.track_save_flag = True
+            # self.menu_handler.reApply( self.server )
+            self.server.applyChanges()
 
         return
 
-    def publish_interative_marker(self, filename):
+    def publish_interative_marker(self):
         id = 0
         for i in range(len(self.track)):
             int_marker = InteractiveMarker()
@@ -316,10 +343,65 @@ class PublishTrack():
             self.menu_handler.apply( self.server, int_marker.name )
         self.server.applyChanges()
             
-            
+class MangeTrackHistroy():
+    def __init__(self,PublishTrack):
+        home_dir = os.path.expanduser("~")
+        directory = home_dir+'/F1tenth_track/gui_tmp'
+        if os.path.exists(directory):
+            shutil.rmtree(directory)
+            print("Remove existing tmp folder: ",directory)
+        os.makedirs(directory)
+        print("Create tmp folder: ", directory)
+        self.name_p1revious = directory + 'p1revious_track.txt'
+        self.name_p2revious = directory + 'p2revious_track.txt'
+        self.name_p3revious = directory + 'p2revious_track.txt'
+        self.name_current = directory + 'current_track.txt'
+        self.name_modified = home_dir + '/F1tenth_track/result/rviz_modified_track.txt'
+
+        self.PublishTrack = PublishTrack
+        self.track_save_flag = False
+
+    def save_track(self,marker_array):
+        print("Start saving track...")
+        self.shift_saved_track_forward()
+        with open(self.name_current, 'w') as file:
+        # Loop through each marker in the array
+            for marker in marker_array.markers:
+                # Write the pose information to a new line in the file
+                file.write('{}, {}, {}, {}, {}, {}, {}\n'.format(
+                    marker.pose.position.x, marker.pose.position.y, marker.pose.position.z,
+                    marker.pose.orientation.x, marker.pose.orientation.y, marker.pose.orientation.z, marker.pose.orientation.w))
+        self.PublishTrack.track = np.loadtxt(self.name_current, delimiter=",", dtype = float)
+        shutil.copy2(self.name_current,self.name_modified)
+        print("End saving track...")
+
+    def control_z_track(self):
+        directory = self.name_p1revious
+        if not os.path.exists(directory):
+            print("can not load last track")
+            return
+        self.shift_saved_track_backward()
+        self.PublishTrack.track = np.loadtxt(self.name_current, delimiter=",", dtype = float)
+        self.PublishTrack.publish_interative_marker()
+        shutil.copy2(self.name_current,self.name_modified)
+
+    def shift_saved_track_forward(self):
+        self.rename_txt(self.name_p2revious,self.name_p3revious)
+        self.rename_txt(self.name_p1revious,self.name_p2revious)
+        self.rename_txt(self.name_current,self.name_p1revious)
+
+    def shift_saved_track_backward(self):
+        self.rename_txt(self.name_p1revious,self.name_current)
+        self.rename_txt(self.name_p2revious,self.name_p1revious)
+        self.rename_txt(self.name_p3revious,self.name_p2revious)
+       
+    def rename_txt(self,src, dst):
+        if os.path.exists(src):
+            os.rename(src,dst)
+
 def main():
     rospy.init_node("track_info_node")
     PublishTrack()
-    
+
 if __name__ == '__main__':
     main()
