@@ -17,7 +17,6 @@ from visualization_msgs.msg import *
 wp_sampling = 10
 class PublishTrack():
     def __init__(self):
-        self.run_cnt = 0
         self.track_manager=MangeTrackHistroy(self)
         self.server = InteractiveMarkerServer("track_info_interative")
         self.menu_handler = MenuHandler()
@@ -46,11 +45,12 @@ class PublishTrack():
         current_script_path = os.path.dirname(file_path)
         file_name = current_script_path + '/result/'+ file_name1
         print(file_name)
-        self.track =  np.loadtxt(file_name, delimiter=",", dtype = float)
+        file_name = current_script_path + '/result/'+ file_name1
+        self.track =  self.read_file(file_name,0)
+        # self.track =  np.loadtxt(file_name, delimiter=",", dtype = float)
         shutil.copy2(file_name,self.track_manager.name_current)
         self.publish_interative_marker()
-
-        # self.track = self.read_file(file_name, 0)
+  
         
         if obstacle:
             file_name = current_script_path+"/result/traj1_with_boundary.txt"
@@ -75,16 +75,11 @@ class PublishTrack():
         self.rate = rospy.Rate(1)
 
         while not rospy.is_shutdown():
-            if self.run_cnt < 2:
-                self.run_cnt =self.run_cnt+1
-                file_name = current_script_path + '/result/'+ file_name1
-                self.track =  self.read_file(file_name,0)
-                self.cst_pub.publish(self.track)
-                self.cst_pub2.publish(self.track1)
-                self.cst_pub3.publish(self.track2)
-                self.cst_pub4.publish(self.track3)
-                self.cst_pub5.publish(self.track4)
-                self.track =  np.loadtxt(file_name, delimiter=",", dtype = float)
+            self.cst_pub.publish(self.track)
+            self.cst_pub2.publish(self.track1)
+            self.cst_pub3.publish(self.track2)
+            self.cst_pub4.publish(self.track3)
+            self.cst_pub5.publish(self.track4)
             self.rate.sleep()
             self.server.applyChanges()
                 
@@ -129,10 +124,10 @@ class PublishTrack():
             marker.header.frame_id = "map"
             marker.id = int_marker.controls[0].markers[0].id
             marker.pose = int_marker.pose
-            marker.pose.orientation.x = self.track[marker.id,3] #curvature
-            marker.pose.orientation.y = self.track[marker.id,4] #left_width
-            marker.pose.orientation.z = self.track[marker.id,5] #right_width
-            marker.pose.orientation.w = self.track[marker.id,7] # ey 
+            marker.pose.orientation.x = self.track.markers[marker.id].pose.orientation.x #curvature
+            marker.pose.orientation.y = self.track.markers[marker.id].pose.orientation.y #left_width
+            marker.pose.orientation.z = self.track.markers[marker.id].pose.orientation.z #right_width
+            marker.pose.orientation.w = self.track.markers[marker.id].pose.orientation.w # ey 
             marker.ns= int_marker.controls[0].markers[0].ns
             marker.type = int_marker.controls[0].markers[0].type
             marker.action = int_marker.controls[0].markers[0].action
@@ -140,7 +135,7 @@ class PublishTrack():
             marker.color = int_marker.controls[0].markers[0].color
             marker.color.a = 1
             marker_array.markers.append(marker)
-        self.cst_pub.publish(marker_array)
+        # self.cst_pub.publish(marker_array)
         
         if self.track_manager.track_save_flag == True:
             self.track_manager.save_track(marker_array)
@@ -373,18 +368,18 @@ class PublishTrack():
 
     def publish_interative_marker(self):
         id = 0
-        for i in range(len(self.track)):
+        for marker in self.track.markers:
             int_marker = InteractiveMarker()
             int_marker.header.frame_id = "map"
             int_marker.name ="wp"+str(id)
-            if i%wp_sampling ==0:
+            if id%wp_sampling ==0:
                 int_marker.description = str(id)
             int_marker.header.stamp = rospy.Time.now()
             int_marker.scale = 0.5
-            int_marker.pose.position.x = self.track[i,0] #position x
-            int_marker.pose.position.y = self.track[i,1] #posiiton y
-            int_marker.pose.position.z = self.track[i,2] #velocity
-            yaw = self.track[i,6]
+            int_marker.pose.position.x = marker.pose.position.x #position x
+            int_marker.pose.position.y = marker.pose.position.y #posiiton y
+            int_marker.pose.position.z = marker.pose.position.z #velocity
+            yaw = marker.color.r
             qx = 0.0
             qy = 0.0
             qz = math.sin(yaw / 2.0)
@@ -408,10 +403,10 @@ class PublishTrack():
             track_marker.header.stamp = rospy.Time.now()
             track_marker.type = Marker.SPHERE
             track_marker.ns = "track"
-            track_marker.color.r = self.track[i,6] # yaw
+            track_marker.color.r = yaw # yaw
             track_marker.color.g =255
             track_marker.color.b =0 
-            if i%wp_sampling ==0:
+            if id%wp_sampling ==0:
                 track_marker.color.a = 1
             else:
                  track_marker.color.a = 0
@@ -422,7 +417,7 @@ class PublishTrack():
             id += 1
             tarck_marker_control.markers.append(track_marker)
             int_marker.controls.append(tarck_marker_control)
-            if i%wp_sampling ==0:
+            if id%wp_sampling ==0:
                 # move_x
                 self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MOVE_AXIS,"move_x",1,1,0,0)
                 # move_y
@@ -464,17 +459,20 @@ class MangeTrackHistroy():
                 file.write('{}, {}, {}, {}, {}, {}, {}, {}\n'.format(
                     marker.pose.position.x, marker.pose.position.y, marker.pose.position.z,
                     marker.pose.orientation.x, marker.pose.orientation.y, marker.pose.orientation.z, marker.color.r, marker.pose.orientation.w))
-        self.PublishTrack.track = np.loadtxt(self.name_current, delimiter=",", dtype = float)
+        self.PublishTrack.track = self.PublishTrack.read_file(self.name_current,0)
         shutil.copy2(self.name_current,self.name_modified)
         print("End saving track...")
 
     def control_z_track(self):
         directory = self.name_p1revious
         if not os.path.exists(directory):
-            print("can not load last track")
+            print('\033[91m'+ "can not load last track more than 3 times!!"+'\033[0m')
+            print('\033[91m'+ "can not load last track more than 3 times!!"+'\033[0m')
+            print('\033[91m'+ "can not load last track more than 3 times!!"+'\033[0m')
+            print('\033[91m'+ "can not load last track more than 3 times!!"+'\033[0m')
             return
         self.shift_saved_track_backward()
-        self.PublishTrack.track = np.loadtxt(self.name_current, delimiter=",", dtype = float)
+        self.PublishTrack.track = self.PublishTrack.read_file(self.name_current,0)
         self.PublishTrack.publish_interative_marker()
         shutil.copy2(self.name_current,self.name_modified)
 
