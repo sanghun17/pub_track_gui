@@ -7,6 +7,7 @@ import shutil
 import copy
 import re
 import os
+import tkinter as tk
 
 from geometry_msgs.msg import Pose
 from interactive_markers.interactive_marker_server import *
@@ -18,9 +19,10 @@ wp_sampling = 10
 class PublishTrack():
     def __init__(self):
         self.track_manager=MangeTrackHistroy(self)
+        self.pop_up_display=PopUpDisplay(self)
         self.server = InteractiveMarkerServer("track_info_interative")
         self.menu_handler = MenuHandler()
-        self.menu_list = [ "Anchor1","Anchor2","Vel_Smooth","Pos_Smooth","Vel_Multiply","Control-Z"]
+        self.menu_list = [ "Anchor1","Anchor2","Vel_Smooth","Pos_Smooth","Vel_Multiply","Lookahead_Set","Control-Z"]
         for menu in self.menu_list:
             self.menu_handler.insert( menu , callback=self.processFeedback)
         self.cst_pub = rospy.Publisher("track_info", MarkerArray, queue_size = 1)
@@ -47,11 +49,9 @@ class PublishTrack():
         print(file_name)
         file_name = current_script_path + '/result/'+ file_name1
         self.track =  self.read_file(file_name,0)
-        # self.track =  np.loadtxt(file_name, delimiter=",", dtype = float)
         shutil.copy2(file_name,self.track_manager.name_current)
         self.publish_interative_marker()
   
-        
         if obstacle:
             file_name = current_script_path+"/result/traj1_with_boundary.txt"
             self.track1 = self.read_file(file_name, 1000)
@@ -103,8 +103,8 @@ class PublishTrack():
             track_marker.pose.orientation.x = track[i,3] #curvature
             track_marker.pose.orientation.y = track[i,4] #left_width
             track_marker.pose.orientation.z = track[i,5] #right_width
-            track_marker.pose.orientation.w = track[i,7] #ey
-            track_marker.color.r = track[i,6] # yaw
+            track_marker.pose.orientation.w = track[i,6] #psi
+            track_marker.color.r = track[i,7] #lookahead
             track_marker.color.g =255
             track_marker.color.b =0 
             track_marker.color.a = 1
@@ -127,7 +127,7 @@ class PublishTrack():
             marker.pose.orientation.x = self.track.markers[marker.id].pose.orientation.x #curvature
             marker.pose.orientation.y = self.track.markers[marker.id].pose.orientation.y #left_width
             marker.pose.orientation.z = self.track.markers[marker.id].pose.orientation.z #right_width
-            marker.pose.orientation.w = self.track.markers[marker.id].pose.orientation.w # ey 
+            marker.pose.orientation.w = self.track.markers[marker.id].pose.orientation.w # psi
             marker.ns= int_marker.controls[0].markers[0].ns
             marker.type = int_marker.controls[0].markers[0].type
             marker.action = int_marker.controls[0].markers[0].action
@@ -314,6 +314,33 @@ class PublishTrack():
         self.server.applyChanges()
         return
 
+    def set_lookahead(self, marker1_name, marker2_name, input_value):
+        m1_id = int(marker1_name[2:])
+        m2_id = int(marker2_name[2:])
+        if self.path_contain_zero_wp(m1_id, m2_id):
+            if m1_id < m2_id:
+                tmp1 = range(m1_id, -1,-1)
+                tmp2 = range(self.max_id,m2_id-1,-1)
+                smooth_range = list(tmp1)+list(tmp2)
+            else:
+                tmp1 = range(m2_id,-1,-1)
+                tmp2 = range(self.max_id,m1_id-1,-1)
+                smooth_range = list(tmp1)+list(tmp2)
+        else:
+            if m1_id < m2_id:
+                smooth_range = range(m1_id, m2_id+1,1)
+            else:
+                smooth_range = range(m1_id, m2_id-1,-1)
+
+        for i in smooth_range:
+            marker_name = "wp"+str(i)
+            int_marker = self.server.get(marker_name)
+            int_marker.controls[0].markers[0].color.r = np.float32(input_value)
+
+        self.menu_handler.reApply( self.server )
+        self.server.applyChanges()
+        return
+
     def processFeedback(self,feedback):
         p = feedback.pose.position
 
@@ -351,6 +378,12 @@ class PublishTrack():
                 self.multiply_path_z(self.anchor1, self.anchor2)
                 print("multiply vel finished")
                 self.track_manager.track_save_flag = True
+            elif selected_menu == "Lookahead_Set":
+                self.pop_up_display.show_input_dialog()
+                user_input = self.pop_up_display.user_input_lookahead
+                self.set_lookahead(self.anchor1, self.anchor2, user_input)
+                print("set lookahead finished")
+                self.track_manager.track_save_flag = True
             elif selected_menu == "Control-Z":
                 self.track_manager.control_z_track()
                 print("load last track finished")
@@ -373,13 +406,13 @@ class PublishTrack():
             int_marker.header.frame_id = "map"
             int_marker.name ="wp"+str(id)
             if id%wp_sampling ==0:
-                int_marker.description = str(id)
+                int_marker.description = "L:"+str(marker.color.r)
             int_marker.header.stamp = rospy.Time.now()
             int_marker.scale = 0.5
             int_marker.pose.position.x = marker.pose.position.x #position x
             int_marker.pose.position.y = marker.pose.position.y #posiiton y
             int_marker.pose.position.z = marker.pose.position.z #velocity
-            yaw = marker.color.r
+            yaw = marker.pose.orientation.w
             qx = 0.0
             qy = 0.0
             qz = math.sin(yaw / 2.0)
@@ -403,7 +436,7 @@ class PublishTrack():
             track_marker.header.stamp = rospy.Time.now()
             track_marker.type = Marker.SPHERE
             track_marker.ns = "track"
-            track_marker.color.r = yaw # yaw
+            track_marker.color.r = marker.color.r # lookahead
             track_marker.color.g =255
             track_marker.color.b =0 
             if id%wp_sampling ==0:
@@ -458,7 +491,7 @@ class MangeTrackHistroy():
                 # Write the pose information to a new line in the file
                 file.write('{}, {}, {}, {}, {}, {}, {}, {}\n'.format(
                     marker.pose.position.x, marker.pose.position.y, marker.pose.position.z,
-                    marker.pose.orientation.x, marker.pose.orientation.y, marker.pose.orientation.z, marker.color.r, marker.pose.orientation.w))
+                    marker.pose.orientation.x, marker.pose.orientation.y, marker.pose.orientation.z, marker.pose.orientation.w, marker.color.r))
         self.PublishTrack.track = self.PublishTrack.read_file(self.name_current,0)
         shutil.copy2(self.name_current,self.name_modified)
         print("End saving track...")
@@ -489,6 +522,46 @@ class MangeTrackHistroy():
     def rename_txt(self,src, dst):
         if os.path.exists(src):
             os.rename(src,dst)
+
+class PopUpDisplay():
+    def __init__(self, PublishTrack):
+        self.PublishTrack = PublishTrack
+        self.user_input_lookahead = None
+        self.entry = None  # Declare entry as an instance variable
+
+    def get_user_input(self):
+        self.user_input_lookahead = self.entry.get()  # Retrieve the value entered by the user
+        self.window.destroy()  # Close the window
+
+    def show_input_dialog(self):
+        self.window = tk.Tk()
+        self.window.title("User Input")
+
+        # Get the screen dimensions
+        screen_width = self.window.winfo_screenwidth()
+        screen_height = self.window.winfo_screenheight()
+
+        # Calculate the window coordinates for centering
+        window_width = 300
+        window_height = 100
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+
+        # Set the window size and position
+        self.window.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+        label = tk.Label(self.window, text="Enter a lookahead:")
+        label.pack()
+
+        self.entry = tk.Entry(self.window)
+        self.entry.pack()
+
+        button = tk.Button(self.window, text="Submit", command=self.get_user_input)
+        button.pack()
+
+        self.window.mainloop()
+
+
 
 def main():
     rospy.init_node("track_info_node")
