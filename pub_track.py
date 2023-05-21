@@ -406,7 +406,7 @@ class PublishTrack():
             int_marker.header.frame_id = "map"
             int_marker.name ="wp"+str(id)
             if id%wp_sampling ==0:
-                int_marker.description = "L:"+str(marker.color.r)
+                int_marker.description = "wp: "+str(id)+"\nL:"+str(marker.color.r)
             int_marker.header.stamp = rospy.Time.now()
             int_marker.scale = 0.5
             int_marker.pose.position.x = marker.pose.position.x #position x
