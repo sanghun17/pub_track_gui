@@ -22,7 +22,7 @@ class PublishTrack():
         self.pop_up_display=PopUpDisplay(self)
         self.server = InteractiveMarkerServer("track_info_interative")
         self.menu_handler = MenuHandler()
-        self.menu_list = [ "Anchor1","Anchor2","Vel_Smooth","Pos_Smooth","Vel_Multiply","Lookahead_Set","Control-Z"]
+        self.menu_list = [ "Anchor1","Anchor2","Vel_Smooth","Pos_Smooth","Vel_Offset","Lookahead_Set","Control-Z"]
         for menu in self.menu_list:
             self.menu_handler.insert( menu , callback=self.processFeedback)
         self.cst_pub = rospy.Publisher("track_info", MarkerArray, queue_size = 1)
@@ -37,7 +37,7 @@ class PublishTrack():
         self.anchor2 = np.nan
         self.vel_smooth_pivot = np.nan
         self.pos_smooth_pivot = np.nan
-        self.vel_multiply_pivot = np.nan
+        self.Vel_Offset_pivot = np.nan
         self.max_id = np.nan
         obstacle = True
         
@@ -83,7 +83,6 @@ class PublishTrack():
             self.rate.sleep()
             self.server.applyChanges()
                 
-
     def read_file(self, filename, id):
         track = np.loadtxt(filename, delimiter=",", dtype = float)
         
@@ -269,18 +268,9 @@ class PublishTrack():
         self.server.applyChanges()
         return
 
-    def multiply_path_z(self, marker1_name, marker2_name):
-        file_name = self.track_manager.name_p1revious
-        prev_track = np.loadtxt(file_name, delimiter=",", dtype = float)
-        m1_p = self.server.get(marker1_name).pose.position
-        m2_p = self.server.get(marker2_name).pose.position
-        m1_p = np.array([m1_p.z])
-        m2_p = np.array([m2_p.z])
+    def offset_path_z(self, marker1_name, marker2_name, user_input):
         m1_id = int(marker1_name[2:])
         m2_id = int(marker2_name[2:])
-        pivot_id = int(self.vel_multiply_pivot[2:])
-        marker_name = self.vel_multiply_pivot
-        pivot_p = self.server.get(marker_name).pose
         if self.path_contain_zero_wp(m1_id, m2_id):
             if m1_id < m2_id:
                 tmp1 = range(m1_id, -1,-1)
@@ -296,19 +286,10 @@ class PublishTrack():
             else:
                 smooth_range = range(m1_id, m2_id-1,-1)
 
-        rate = pivot_p.position.z / prev_track[pivot_id,2]
         for i in smooth_range:
             marker_name = "wp"+str(i)
-            ori_pose = self.server.get(marker_name).pose
-            new_pose = Pose()
-            new_pose.position.x = ori_pose.position.x
-            new_pose.position.y = ori_pose.position.y
-            if i==pivot_id or i==m1_id or i == m2_id:
-                new_pose.position.z = ori_pose.position.z
-            else:
-                new_pose.position.z =  prev_track[i,2]*rate
-            new_pose.orientation = ori_pose.orientation
-            self.server.setPose(marker_name, new_pose)
+            int_marker = self.server.get(marker_name)
+            int_marker.pose.position.z = int_marker.pose.position.z+np.float64(user_input)
 
         self.menu_handler.reApply( self.server )
         self.server.applyChanges()
@@ -371,16 +352,19 @@ class PublishTrack():
                 self.smooth_path_xy(self.anchor2,self.pos_smooth_pivot)
                 print("smooth pos finished")
                 self.track_manager.track_save_flag = True
-            elif selected_menu == "Vel_Multiply":
-                self.vel_multiply_pivot = feedback.marker_name
-                self.multiply_path_z(self.anchor1, self.anchor2)
-                self.multiply_path_z(self.anchor1, self.anchor2)
-                self.multiply_path_z(self.anchor1, self.anchor2)
+            elif selected_menu == "Vel_Offset":
+                # self.Vel_Offset_pivot = feedback.marker_name
+                # self.offset_path_z(self.anchor1, self.anchor2, user_input)
+                # self.offset_path_z(self.anchor1, self.anchor2, user_input)
+                # self.offset_path_z(self.anchor1, self.anchor2, user_input)
+                self.pop_up_display.show_input_dialog()
+                user_input = self.pop_up_display.user_input
+                self.offset_path_z(self.anchor1, self.anchor2, user_input)
                 print("multiply vel finished")
                 self.track_manager.track_save_flag = True
             elif selected_menu == "Lookahead_Set":
                 self.pop_up_display.show_input_dialog()
-                user_input = self.pop_up_display.user_input_lookahead
+                user_input = self.pop_up_display.user_input
                 self.set_lookahead(self.anchor1, self.anchor2, user_input)
                 print("set lookahead finished")
                 self.track_manager.track_save_flag = True
@@ -526,11 +510,11 @@ class MangeTrackHistroy():
 class PopUpDisplay():
     def __init__(self, PublishTrack):
         self.PublishTrack = PublishTrack
-        self.user_input_lookahead = None
+        self.user_input = None
         self.entry = None  # Declare entry as an instance variable
 
     def get_user_input(self):
-        self.user_input_lookahead = self.entry.get()  # Retrieve the value entered by the user
+        self.user_input = self.entry.get()  # Retrieve the value entered by the user
         self.window.destroy()  # Close the window
 
     def show_input_dialog(self):
