@@ -9,7 +9,7 @@ import re
 import os
 import tkinter as tk
 
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, Point
 from interactive_markers.interactive_marker_server import *
 from interactive_markers.menu_handler import *
 from visualization_msgs.msg import *
@@ -25,13 +25,6 @@ class PublishTrack():
         self.menu_list = [ "Anchor1","Anchor2","Vel_Smooth","Pos_Smooth","Vel_Offset","Lookahead_Set","Control-Z"]
         for menu in self.menu_list:
             self.menu_handler.insert( menu , callback=self.processFeedback)
-        self.cst_pub = rospy.Publisher("track_info", MarkerArray, queue_size = 1)
-        self.cst_pub2 = rospy.Publisher("track_info_1", MarkerArray, queue_size = 1)
-        self.cst_pub3 = rospy.Publisher("track_info_2", MarkerArray, queue_size = 1)
-        self.cst_pub4 = rospy.Publisher("track_info_3", MarkerArray, queue_size = 1)
-        self.cst_pub5 = rospy.Publisher("track_info_4", MarkerArray, queue_size = 1)
-        
-        self.interative_marker_sub = rospy.Subscriber("/track_info_interative/update_full",InteractiveMarkerInit,self.InterativeMarkerCallback)
 
         self.anchor1 = np.nan
         self.anchor2 = np.nan
@@ -39,8 +32,16 @@ class PublishTrack():
         self.pos_smooth_pivot = np.nan
         self.Vel_Offset_pivot = np.nan
         self.max_id = np.nan
-        obstacle = True
+        self.last_sampled_int_marker = None
+        self.prev_int_makrer = InteractiveMarker()
+        self.prev_marker = Marker()
         
+        self.cst_pub = rospy.Publisher("track_info", MarkerArray, queue_size = 1)
+        self.cst_pub2 = rospy.Publisher("track_info_1", MarkerArray, queue_size = 1)
+        self.cst_pub3 = rospy.Publisher("track_info_2", MarkerArray, queue_size = 1)
+        self.cst_pub4 = rospy.Publisher("track_info_3", MarkerArray, queue_size = 1)
+        self.cst_pub5 = rospy.Publisher("track_info_4", MarkerArray, queue_size = 1)
+        self.interative_marker_sub = rospy.Subscriber("/track_info_interative/update_full",InteractiveMarkerInit,self.InterativeMarkerCallback)
 
         file_name1 = rospy.get_param('/pub_track_gui/filename')
         file_path = os.path.abspath(__file__)
@@ -51,17 +52,15 @@ class PublishTrack():
         self.track =  self.read_file(file_name,0)
         shutil.copy2(file_name,self.track_manager.name_current)
         self.publish_interative_marker()
-  
+
+        obstacle = True
         if obstacle:
             file_name = current_script_path+"/result/traj1_with_boundary.txt"
             self.track1 = self.read_file(file_name, 1000)
-            
             file_name = current_script_path+"/result/traj2_with_boundary.txt"
             self.track2 = self.read_file(file_name, 2000)
-            
             file_name = current_script_path+"/result/traj3_with_boundary.txt"
             self.track3 = self.read_file(file_name, 3000)
-            
             file_name = current_script_path+"/result/traj4_with_boundary.txt"
             self.track4 = self.read_file(file_name, 4000)
         else:
@@ -71,9 +70,7 @@ class PublishTrack():
             self.track3 = self.opt_track
             self.track4 = self.opt_track
     
-        
         self.rate = rospy.Rate(1)
-
         while not rospy.is_shutdown():
             self.cst_pub.publish(self.track)
             self.cst_pub2.publish(self.track1)
@@ -167,7 +164,6 @@ class PublishTrack():
         m1_id = int(marker1_name[2:])
         m2_id = int(marker2_name[2:])
         direction = m2_p - m1_p
-        distance = np.linalg.norm(direction)
         distance = np.linalg.norm(direction)
         if distance ==0:
             unit_vector = 0
@@ -357,15 +353,17 @@ class PublishTrack():
                 # self.offset_path_z(self.anchor1, self.anchor2, user_input)
                 # self.offset_path_z(self.anchor1, self.anchor2, user_input)
                 # self.offset_path_z(self.anchor1, self.anchor2, user_input)
-                self.pop_up_display.show_input_dialog()
+                self.pop_up_display.show_input_dialog("Vel_Offset")
                 user_input = self.pop_up_display.user_input
                 self.offset_path_z(self.anchor1, self.anchor2, user_input)
+                self.pop_up_display.user_input = 0.0
                 print("multiply vel finished")
                 self.track_manager.track_save_flag = True
             elif selected_menu == "Lookahead_Set":
-                self.pop_up_display.show_input_dialog()
+                self.pop_up_display.show_input_dialog("Lookahead_Set")
                 user_input = self.pop_up_display.user_input
                 self.set_lookahead(self.anchor1, self.anchor2, user_input)
+                self.pop_up_display.user_input = 0.0
                 print("set lookahead finished")
                 self.track_manager.track_save_flag = True
             elif selected_menu == "Control-Z":
@@ -382,20 +380,33 @@ class PublishTrack():
              self.track_manager.track_save_flag = True
 
         return
-
+    
+    def distance_between_int_markers(self,int_marker1, int_marker2):
+        if int_marker2 == None:
+            return 999
+        m1_p = np.array([int_marker1.pose.position.x, int_marker1.pose.position.y, int_marker1.pose.position.z])
+        m2_p = np.array([int_marker2.pose.position.x, int_marker2.pose.position.y, int_marker2.pose.position.z])
+        distance = np.linalg.norm(m1_p-m2_p)
+        # print(distance)
+        return distance
+    
     def publish_interative_marker(self):
         id = 0
         for marker in self.track.markers:
             int_marker = InteractiveMarker()
             int_marker.header.frame_id = "map"
             int_marker.name ="wp"+str(id)
-            if id%wp_sampling ==0:
-                int_marker.description = "wp: "+str(id)+"\nL:"+str(marker.color.r)
             int_marker.header.stamp = rospy.Time.now()
             int_marker.scale = 0.5
             int_marker.pose.position.x = marker.pose.position.x #position x
             int_marker.pose.position.y = marker.pose.position.y #posiiton y
             int_marker.pose.position.z = marker.pose.position.z #velocity
+            # if id%wp_sampling ==0:
+            if self.distance_between_int_markers(int_marker,self.last_sampled_int_marker) > 1.0:
+                sampling = True
+                self.last_sampled_int_marker = int_marker
+                int_marker.description = "wp: "+str(id)+"\nL:"+str(marker.color.r)
+                
             yaw = marker.pose.orientation.w
             qx = 0.0
             qy = 0.0
@@ -423,7 +434,7 @@ class PublishTrack():
             track_marker.color.r = marker.color.r # lookahead
             track_marker.color.g =255
             track_marker.color.b =0 
-            if id%wp_sampling ==0:
+            if sampling:
                 track_marker.color.a = 1
             else:
                  track_marker.color.a = 0
@@ -431,23 +442,33 @@ class PublishTrack():
             track_marker.scale.y = 0.2
             track_marker.scale.z = 0.2
             self.max_id = id
-            id += 1
+            
             tarck_marker_control.markers.append(track_marker)
             int_marker.controls.append(tarck_marker_control)
-            if id%wp_sampling ==0:
-                # move_x
-                self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MOVE_AXIS,"move_x",1,1,0,0)
-                # move_y
-                self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MOVE_AXIS,"move_y",1,0,0,1)
-                # move_z
-                self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MOVE_AXIS,"move_z",1,0,1,0)
-                # menu
-                self.CreateMarkerControl(int_marker,InteractiveMarkerControl.BUTTON,"menu",0,0,0,1)
-
+            if sampling:
+                self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MOVE_AXIS,"move_x",1,1,0,0) # move_x
+                self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MOVE_AXIS,"move_y",1,0,0,1) # move_y
+                self.CreateMarkerControl(int_marker,InteractiveMarkerControl.MOVE_AXIS,"move_z",1,0,1,0) # move_z
+                self.CreateMarkerControl(int_marker,InteractiveMarkerControl.BUTTON,"menu",0,0,0,1)# menu
             self.server.insert(int_marker, self.processFeedback)
             self.menu_handler.apply( self.server, int_marker.name )
-        self.server.applyChanges()
             
+            if self.distance_between_int_markers(self.last_sampled_int_marker,self.prev_int_makrer) > 1.0:
+                self.prev_marker.color.a =1
+                self.prev_int_makrer.description= "wp: "+str(id-1)+"\nL:"+str(self.prev_marker.color.r)
+                self.CreateMarkerControl(self.prev_int_makrer,InteractiveMarkerControl.MOVE_AXIS,"move_x",1,1,0,0) # move_x
+                self.CreateMarkerControl(self.prev_int_makrer,InteractiveMarkerControl.MOVE_AXIS,"move_y",1,0,0,1) # move_y
+                self.CreateMarkerControl(self.prev_int_makrer,InteractiveMarkerControl.MOVE_AXIS,"move_z",1,0,1,0) # move_z
+                self.CreateMarkerControl(self.prev_int_makrer,InteractiveMarkerControl.BUTTON,"menu",0,0,0,1)# menu
+
+            self.prev_int_makrer = int_marker
+            self.prev_marker = marker
+            sampling = False
+            id += 1
+
+        self.server.applyChanges()
+        self.last_sampled_int_marker = None
+
 class MangeTrackHistroy():
     def __init__(self,PublishTrack):
         file_path = os.path.abspath(__file__)
@@ -510,16 +531,21 @@ class MangeTrackHistroy():
 class PopUpDisplay():
     def __init__(self, PublishTrack):
         self.PublishTrack = PublishTrack
-        self.user_input = None
-        self.entry = None  # Declare entry as an instance variable
+        self.user_input = 0.0
+        self.entry = 0.0  # Declare entry as an instance variable
 
     def get_user_input(self):
-        self.user_input = self.entry.get()  # Retrieve the value entered by the user
-        self.window.destroy()  # Close the window
+        try:
+            self.user_input = float(self.entry.get())  # Try converting user input to float
+            print("user_input:", self.user_input)
+            self.window.destroy()  # Close the window
+        except ValueError:
+            # Exception handling for invalid input (not a valid float)
+            print("Invalid input! Please enter a valid number.")
 
-    def show_input_dialog(self):
+    def show_input_dialog(self,menu):
         self.window = tk.Tk()
-        self.window.title("User Input")
+        self.window.title(menu+" User Input")
 
         # Get the screen dimensions
         screen_width = self.window.winfo_screenwidth()
@@ -534,7 +560,7 @@ class PopUpDisplay():
         # Set the window size and position
         self.window.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
-        label = tk.Label(self.window, text="Enter a lookahead:")
+        label = tk.Label(self.window, text="Enter a "+menu+":")
         label.pack()
 
         self.entry = tk.Entry(self.window)
